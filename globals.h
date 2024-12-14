@@ -4,6 +4,12 @@
 #include "game_structures.hpp"
 #include <d3d11.h>
 #include "overlay/imgui/imgui.h"
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+#include <thread>
+#include <chrono>
 
 namespace globals {
     using namespace protocol::engine::sdk;
@@ -28,6 +34,11 @@ namespace globals {
 	inline std::vector < task_data* > task_data_cache{};
 	inline std::vector < task_scanner* > task_scanner_cache{};
 	inline std::vector < a_weapon_case_code_c* > weapon_case_cache{};
+
+	 // Synchronization tools
+    inline std::mutex player_cache_mutex;
+    inline std::condition_variable cv;
+    inline std::atomic<bool> data_populated{false};  // Flag to indicate if data is populated
 
 	inline ImVec4 employee_color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // Green
 	inline ImVec4 dissident_color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red 

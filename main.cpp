@@ -21,11 +21,36 @@
 #include "bootstrap.h"
 #include "util.hpp"
 
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+#include <chrono>
+
 using namespace std;
 using namespace globals;
 using namespace protocol::engine::sdk;
 using namespace protocol::game::sdk;
 using namespace protocol::engine;
+
+std::mutex player_cache_mutex;
+std::mutex world_item_cache_mutex;
+std::mutex task_cache_mutex;
+
+std::vector<mec_pawn*> player_cache;
+std::vector<world_item*> world_item_cache;
+std::vector<task_vents*> task_vents_cache;
+std::vector<task_machines*> task_machines_cache;
+std::vector<task_alimentations*> task_alims_cache;
+std::vector<task_deliveries*> task_delivery_cache;
+std::vector<task_pizzushis*> task_pizzushi_cache;
+std::vector<task_data*> task_data_cache;
+std::vector<task_scanner*> task_scanner_cache;
+std::vector<a_weapon_case_code_c*> weapon_case_cache;
+
+std::atomic<bool> data_populated(false); // Atomic flag to track data readiness
+
+std::condition_variable cv;
 
 static void cache_useful() {
 	bool items_populated = false;  // Flag to track if items have been populated once
@@ -48,16 +73,16 @@ static void cache_useful() {
 		local_mec = (mec_pawn*)local_controller->get_pawn();
 		if (!local_mec) continue;
 
-		std::vector < mec_pawn* > temp_player_cache{};
-		std::vector < world_item* > temp_world_item_cache{};
-		std::vector < task_vents* > temp_task_vents_cache{};
-		std::vector < task_machines* > temp_task_machines_cache{};
-		std::vector < task_alimentations* > temp_task_alims_cache{};
-		std::vector < task_deliveries* > temp_task_delivery_cache{};
-		std::vector < task_pizzushis* > temp_task_pizzushi_cache{};
-		std::vector < task_data* > temp_task_data_cache{};
-		std::vector < task_scanner* > temp_task_scanner_cache{};
-		std::vector < a_weapon_case_code_c* > temp_weapon_case_cache{};
+		std::vector<mec_pawn*> temp_player_cache;
+        std::vector<world_item*> temp_world_item_cache;
+        std::vector<task_vents*> temp_task_vents_cache;
+        std::vector<task_machines*> temp_task_machines_cache;
+        std::vector<task_alimentations*> temp_task_alims_cache;
+        std::vector<task_deliveries*> temp_task_delivery_cache;
+        std::vector<task_pizzushis*> temp_task_pizzushi_cache;
+        std::vector<task_data*> temp_task_data_cache;
+        std::vector<task_scanner*> temp_task_scanner_cache;
+        std::vector<a_weapon_case_code_c*> temp_weapon_case_cache;
 
 		// std::vector<FStr_ScannerDot> scanner_targets;
 
@@ -107,19 +132,33 @@ static void cache_useful() {
 			}
 		}
 
-		player_cache = temp_player_cache;
-		world_item_cache = temp_world_item_cache;
-		task_vents_cache = temp_task_vents_cache;
-		task_machines_cache = temp_task_machines_cache;
-		task_alims_cache = temp_task_alims_cache;
-		task_delivery_cache = temp_task_delivery_cache;
-		task_pizzushi_cache = temp_task_pizzushi_cache;
-		task_data_cache = temp_task_data_cache;
-		task_scanner_cache = temp_task_scanner_cache;
-		weapon_case_cache = temp_weapon_case_cache;
+		// Locking the mutexes before updating shared data
+        {
+            std::lock_guard<std::mutex> lock_player_cache(globals::player_cache_mutex);
+            globals::player_cache = temp_player_cache;  // Use the global player_cache
+        }
+
+        {
+            std::lock_guard<std::mutex> lock_world_item_cache(world_item_cache_mutex);
+            globals::world_item_cache = temp_world_item_cache;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock_task_cache(task_cache_mutex);
+            globals::task_vents_cache = temp_task_vents_cache;
+            globals::task_machines_cache = temp_task_machines_cache;
+            globals::task_alims_cache = temp_task_alims_cache;
+            globals::task_delivery_cache = temp_task_delivery_cache;
+            globals::task_pizzushi_cache = temp_task_pizzushi_cache;
+            globals::task_data_cache = temp_task_data_cache;
+            globals::task_scanner_cache = temp_task_scanner_cache;
+            globals::weapon_case_cache = temp_weapon_case_cache;
+        }
 
 		// Call PopulateUniqueItems only once after items are populated
 		if (!items_populated && !temp_world_item_cache.empty()) {
+			globals::data_populated = true; // Set flag to true when data is populated
+        	globals::cv.notify_all();  // Notify main thread that data is ready
 			items_populated = true;  // Ensure this only happens once
 		}
 	}
@@ -149,7 +188,7 @@ int main() {
 
 	std::thread cache_thread(cache_useful);
 	cache_thread.detach();
-	// cache_thread.join();
+	//cache_thread.join();
 
 	while(true) {
 		Bootstrap::RenderLoop();

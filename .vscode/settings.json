@@ -117,6 +117,8 @@
     "chrono": "cpp",
     "format": "cpp",
     "span": "cpp",
-    "variant": "cpp"
+    "variant": "cpp",
+    "condition_variable": "cpp",
+    "mutex": "cpp"
   }
 }

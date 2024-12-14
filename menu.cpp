@@ -8,6 +8,12 @@
 #include <fstream>
 #include <unordered_map>
 #include <iomanip>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+#include <thread>
+#include <chrono>
 
 using namespace globals;
 
@@ -39,6 +45,10 @@ namespace Menu {
     }
 
     void RenderMenu() {
+        // Wait for the data to be populated
+        std::unique_lock<std::mutex> lock(globals::player_cache_mutex);
+        globals::cv.wait(lock, []{ return globals::data_populated.load(); });
+
         // Set the window to start at the top-left corner of the application window
         ImGui::SetNextWindowPos(ImVec2(0, 0));
 
@@ -57,15 +67,11 @@ namespace Menu {
         float childHeight = availableSpace.y;      // Use full height (optional)
 
         ImGui::BeginChild("About me", ImVec2(childWidth, childHeight), true);
-        ImVec2 window1_pos = ImGui::GetWindowPos();
-        ImVec2 window1_size = ImGui::GetWindowSize();
 
-        auto player_state = local_mec->player_state();
+        auto player_state = globals::local_mec->player_state();
 
-        auto name = player_state->get_player_name_private();
-        auto role = local_mec->get_player_role();
-
-        ImGui::Text("Hello, %s", name.read_string());
+        auto name = player_state->get_player_name_private().read_string();
+        auto role = globals::local_mec->get_player_role();
 
         auto role_text = "[?]";
         switch(role) {
@@ -82,14 +88,16 @@ namespace Menu {
                 break;
         }
 
-        ImGui::Text("Role: %s", role_text);
+        std::string display_name = name + " " + role_text;
 
-        auto hand_item = local_mec->get_hand_item();
+        ImGui::Text("Player: %s", display_name.c_str());
+
+        auto hand_item = globals::local_mec->get_hand_item();
 		auto melee_item_data = (u_data_melee*)hand_item;
 
         auto equipped = hand_item->get_name().read_string();
 
-        ImGui::Text("Equipped: %s", equipped);
+        ImGui::Text("Equipped: %s", equipped.c_str());
 
         if (ImGui::Button("Start Game")) {
             xx++;
@@ -104,10 +112,10 @@ namespace Menu {
         // ImGui::SetNextWindowPos(ImVec2(window1_pos.x + window1_size.x, window1_pos.y));
         ImGui::BeginChild("Cases",  ImVec2(childWidth, childHeight), true);
 
-        for (auto weapon_case : weapon_case_cache) {
+        for (auto weapon_case : globals::weapon_case_cache) {
 			if (!weapon_case) continue;
 
-			auto role = local_mec->get_player_role();
+			auto role = globals::local_mec->get_player_role();
 			if (role == 3 || role == 4) {
 				auto weapon_case_code = weapon_case->get_target_values();
 				auto case_code = weapon_case_code.list();
@@ -144,13 +152,13 @@ namespace Menu {
 					{1, "Empty"},
 					{2, "Pistol"},
 					{3, "Revolver"},
-					{4, "Shorty"}
+					{4, "Shotty"}
 				};
 
 				std::string case_weapon_name = weapon_map.count(selected_weapon) ? weapon_map[selected_weapon] : "Unknown";
 
-                ImGui::Text("case_weapon, %s", case_weapon_name);
-                ImGui::Text("case_code: %s", weapon_case_code_string);
+                ImGui::Text("case_weapon, %s", case_weapon_name.c_str());
+                ImGui::Text("case_code: %s", weapon_case_code_string.c_str());
             }
         }
 
@@ -168,71 +176,70 @@ namespace Menu {
 		float max_text_width = 0.0f;
 		int total_entries = 0;
 
-		for (auto mec : player_cache) {
-			if (mec != local_mec) {
-				auto state = mec->player_state();
-				if (!state) continue;
+		for (auto mec : globals::player_cache) {
+            auto state = mec->player_state();
+            if (!state) continue;
 
-				auto name = state->get_player_name_private().read_string();
-				auto role = mec->get_player_role();
+            auto name = state->get_player_name_private().read_string();
+            auto role = mec->get_player_role();
 
-				auto mec_root = mec->get_root_component();
-				if (!mec_root) continue;
+            auto mec_root = mec->get_root_component();
+            if (!mec_root) continue;
 
-				auto position = mec_root->get_relative_location();
-				auto distance = MenuCalculateDistance(local_mec->get_net_location(), position);
+            auto position = mec_root->get_relative_location();
+            auto distance = MenuCalculateDistance(local_mec->get_net_location(), position);
 
-				auto ghost_root = mec->get_ghost_root();
-				bool is_ghost = false;
-				double ghost_distance = 0.0;
+            auto ghost_root = mec->get_ghost_root();
+            bool is_ghost = false;
+            double ghost_distance = 0.0;
 
-				if (ghost_root) {
-					auto ghostPosition = ghost_root->get_relative_location();
-					ghost_distance = MenuCalculateDistanceMeters(position, ghostPosition);
+            if (ghost_root) {
+                auto ghostPosition = ghost_root->get_relative_location();
+                ghost_distance = MenuCalculateDistanceMeters(position, ghostPosition);
 
-					if (ghost_distance > 2) {
-						is_ghost = true; // User is a ghost
-					}
-				}
-
-				// Determine the display name with [D] for dissident and [G] for ghost
-				std::string display_name =
-					(role == 4 ? std::string("[D]") : std::string("")) +
-					(is_ghost ? std::string("[G]") : std::string("")) +
-					name +
-					" [" + distance + "m]";
-
-				// Fetch the player's color from the configuration
-				ImVec4 color = (role == 4) ? dissident_color : employee_color;
-
-				// Add to the respective list
-				if (role == 4) {
-					dissidents.emplace_back(display_name, color);
-				}
-				else {
-					employees.emplace_back(display_name, color);
-				}
-
-				// Calculate text width for dynamic sizing
-				float text_width = ImGui::CalcTextSize(display_name.c_str()).x;
-				max_text_width = (std::max)(max_text_width, text_width);
-				total_entries++;
-			}
-
-            // Render Dissidents
-            if (ImGui::CollapsingHeader("Dissidents", ImGuiTreeNodeFlags_DefaultOpen)) {
-                for (const auto& [display_name, color] : dissidents) {
-                    ImGui::TextColored(color, "%s", display_name.c_str());
+                if (ghost_distance > 2) {
+                    is_ghost = true; // User is a ghost
                 }
             }
 
-            // Render Employees
-            if (ImGui::CollapsingHeader("Employees", ImGuiTreeNodeFlags_DefaultOpen)) {
-                for (const auto& [display_name, color] : employees) {
-                    ImGui::TextColored(color, "%s", display_name.c_str());
-                }
+            // Determine the display name with [D] for dissident and [G] for ghost
+            std::string display_name =
+                (role == 4 ? std::string("[D]") : std::string("")) +
+                (is_ghost ? std::string("[G]") : std::string("")) +
+                name +
+                " [" + distance + "m]";
+
+            // Fetch the player's color from the configuration
+            ImVec4 color = (role == 4) ? dissident_color : employee_color;
+
+            // Add to the respective list
+            if (role == 4) {
+                dissidents.emplace_back(display_name, color);
             }
-		}
+            else {
+                employees.emplace_back(display_name, color);
+            }
+
+            // Calculate text width for dynamic sizing
+            float text_width = ImGui::CalcTextSize(display_name.c_str()).x;
+            max_text_width = (std::max)(max_text_width, text_width);
+            total_entries++;
+
+        }
+
+        // Render Dissidents
+        if (ImGui::CollapsingHeader("Dissidents", ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (const auto& [display_name, color] : dissidents) {
+                ImGui::TextColored(color, "%s", display_name.c_str());
+            }
+        }
+
+        // Render Employees
+        if (ImGui::CollapsingHeader("Employees", ImGuiTreeNodeFlags_DefaultOpen)) {
+            for (const auto& [display_name, color] : employees) {
+                ImGui::TextColored(color, "%s", display_name.c_str());
+            }
+        }
 
         ImGui::EndChild();
         
@@ -240,13 +247,6 @@ namespace Menu {
     }
 
     void UpdateUI() {
-        // Update the UI with dynamic values
-        // ImGui::Begin("Dynamic Info");
 
-        // // Example of updating dynamic values (e.g., player stats)
-        // ImGui::Text("Player: %s", "PlayerName");
-        // ImGui::Text("Score: %d", xx);
-
-        // ImGui::End();
     }
 }
