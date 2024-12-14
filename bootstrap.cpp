@@ -180,6 +180,7 @@ bool Bootstrap::RenderLoop() {
         auto msg = begin_frame();
 
         Menu::RenderMenu();
+        Menu::EnableMods();
         
         end_frame();
 

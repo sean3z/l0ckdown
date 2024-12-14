@@ -7,7 +7,7 @@
 
 namespace Menu {
     void RenderMenu();  // Declaration of the RenderMenu function
-    void UpdateUI();    // Declaration of the UpdateUI function
+    void EnableMods();    // Declaration of the EnableMods function
 }
 
 #endif // MENU_H

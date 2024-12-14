@@ -44,6 +44,20 @@ namespace Menu {
         return std::sqrt(dx * dx + dy * dy + dz * dz) / 100.0;
     }
 
+    std::string TranslateLocation(int index) {
+        switch(index) {
+            case 0: return "Storage"; break;
+            case 1: return "Machine"; break;
+            case 2: return "Computers"; break;
+            case 3: return "Botanical"; break;
+            case 4: return "Medical"; break;
+            case 5: return "Pizza"; break;
+            case 6: return "Cams"; break;
+        }
+
+        return "Unknown";
+    }
+
     void RenderMenu() {
         // Wait for the data to be populated
         std::unique_lock<std::mutex> lock(globals::player_cache_mutex);
@@ -112,6 +126,8 @@ namespace Menu {
         // ImGui::SetNextWindowPos(ImVec2(window1_pos.x + window1_size.x, window1_pos.y));
         ImGui::BeginChild("Cases",  ImVec2(childWidth, childHeight), true);
 
+        int location = 0;
+
         for (auto weapon_case : globals::weapon_case_cache) {
 			if (!weapon_case) continue;
 
@@ -152,13 +168,16 @@ namespace Menu {
 					{1, "Empty"},
 					{2, "Pistol"},
 					{3, "Revolver"},
-					{4, "Shotty"}
+					{4, "Shotgun"}
 				};
 
 				std::string case_weapon_name = weapon_map.count(selected_weapon) ? weapon_map[selected_weapon] : "Unknown";
 
-                ImGui::Text("case_weapon, %s", case_weapon_name.c_str());
-                ImGui::Text("case_code: %s", weapon_case_code_string.c_str());
+                if (ImGui::CollapsingHeader(TranslateLocation(location++).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text(case_weapon_name.c_str());
+                    ImGui::Text("Code: %s", weapon_case_code_string.c_str());
+                    ImGui::Text("Open: %s", open_delay >= 0 ? std::to_string(open_delay).c_str() : case_open ? "Yes" : "No");
+                }
             }
         }
 
@@ -174,7 +193,6 @@ namespace Menu {
 
 		// Variables to calculate dynamic size
 		float max_text_width = 0.0f;
-		int total_entries = 0;
 
 		for (auto mec : globals::player_cache) {
             auto state = mec->player_state();
@@ -223,8 +241,6 @@ namespace Menu {
             // Calculate text width for dynamic sizing
             float text_width = ImGui::CalcTextSize(display_name.c_str()).x;
             max_text_width = (std::max)(max_text_width, text_width);
-            total_entries++;
-
         }
 
         // Render Dissidents
@@ -246,7 +262,12 @@ namespace Menu {
         ImGui::End();
     }
 
-    void UpdateUI() {
+    void EnableMods() {
+        // Wait for the data to be populated
+        std::unique_lock<std::mutex> lock(globals::player_cache_mutex);
+        globals::cv.wait(lock, []{ return globals::data_populated.load(); });
 
+        globals::local_mec->set_stamina(1.);
+        globals::local_mec->set_health(10000);
     }
 }
