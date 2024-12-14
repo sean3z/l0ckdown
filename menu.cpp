@@ -22,7 +22,10 @@ namespace Menu {
     static bool menuRendered = false;
     static int xx = 0;
 
-        std::string MenuCalculateDistance(const FVector& location1, const vector3& location2) {
+    static bool enable_invincible = false;
+    static bool enable_stamina = false;
+
+    std::string MenuCalculateDistance(const FVector& location1, const vector3& location2) {
         // Calculate the difference in coordinates
         double dx = location1.X - location2.x;
         double dy = location1.Y - location2.y;
@@ -176,7 +179,7 @@ namespace Menu {
                 if (ImGui::CollapsingHeader(TranslateLocation(location++).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::Text(case_weapon_name.c_str());
                     ImGui::Text("Code: %s", weapon_case_code_string.c_str());
-                    ImGui::Text("Open: %s", open_delay >= 0 ? std::to_string(open_delay).c_str() : case_open ? "Yes" : "No");
+                    ImGui::Text("Open: %s", open_delay > 0 ? std::to_string(open_delay).c_str() : case_open ? "Yes" : "No");
                 }
             }
         }
@@ -258,6 +261,16 @@ namespace Menu {
         }
 
         ImGui::EndChild();
+
+        ImGui::SameLine(); // Place the next item on the same line
+
+        ImGui::BeginChild("Mods",  ImVec2(childWidth, childHeight), true);
+
+        ImGui::Checkbox("Invincble", &enable_invincible);
+
+        ImGui::Checkbox("Stamina", &enable_stamina);
+
+        ImGui::EndChild();
         
         ImGui::End();
     }
@@ -267,7 +280,12 @@ namespace Menu {
         std::unique_lock<std::mutex> lock(globals::player_cache_mutex);
         globals::cv.wait(lock, []{ return globals::data_populated.load(); });
 
-        globals::local_mec->set_stamina(1.);
-        globals::local_mec->set_health(10000);
+        if (enable_invincible) {
+            globals::local_mec->set_health(10000);
+        }
+
+        if (enable_stamina) {
+            globals::local_mec->set_stamina(1.);
+        }
     }
 }
